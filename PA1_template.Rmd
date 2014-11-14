@@ -1,25 +1,121 @@
----
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
----
-
+# Reproducible Research: Peer Assessment 1
 
 ## Loading and preprocessing the data
+The data are stored in zip archive, which contains only one file, using read.csv() 
+and unz() connection to load data into variable activity.
 
+```{r}
+activity <- read.csv(unz("activity.zip","activity.csv"))
+```
 
+Then apply str() to show the data.
+```{r}
+str(activity)
+```
+
+Obviously, activity$date should not be a factor, convert it to POSIX date-time objects with strptime(). 
+And check it again.
+```{r}
+activity$date <- as.POSIXct(strptime(activity$date,format="%Y-%m-%d"))
+str(activity)
+```
 
 ## What is mean total number of steps taken per day?
+Using aggregate() to compute the mean of total number steps taken per day, parameter na.rm set to TRUE
+to ignore missing values.
 
+```{r}
+stepsdate <-
+  aggregate(formula = steps~date, data = activity,
+            FUN = sum, na.rm=TRUE)
+```
 
+Then, make a histogram.
+```{r}
+barplot(stepsdate$steps,
+        main="Total Number of Steps Per Day", 
+        xlab="Steps Per Day")
+```
+Mean and median of the number of steps take per day are following:
+```{r}
+mean(stepsdate$steps)
+median(stepsdate$steps)
+```
 
 ## What is the average daily activity pattern?
-
-
+Aggregate the steps per interval, calculating the mean across the days
+```{r}
+stepsinterval <- 
+  aggregate(formula=steps~interval, data=activity,
+            FUN=mean, na.rm=TRUE)
+```
+Make a time series plot using stepsinterval.
+```{r}
+plot(stepsinterval$interval, stepsinterval$steps, 
+     type = "l", xlab = "5-Minute Intervals",  ylab = "Steps")
+```
+The 5-min interval that contains, on average, the maximum number of steps is:
+```{r}
+stepsinterval[which(stepsinterval$steps==max(stepsinterval$steps)),]
+```
 
 ## Imputing missing values
+In previous analysis, records with missing values are removed by na.rm=TRUE.
+```{r}
+rownum.na<-sum(is.na(activity))
+rownum<-nrow(activity)
+```
+Total number of rows with NAs is `r rownum.na`. And total row number is `r rownum`. 
 
+Creating new data set by replacing NAs with mean value for respective interval:
+```{r}
+activity_imputed <- activity
 
+for (i in seq(1:dim(activity_imputed)[1])) {
+    if (is.na(activity_imputed[i, ]$steps)) {
+        activity_imputed[i, ]$steps <- stepsinterval[stepsinterval$interval == 
+            activity_imputed[i, ]$interval, ]$steps
+    }
+}
+```
+Aggregating daily activity from the imputed dataset and plot it.
+```{r}
+stepsdateimputed <-
+  aggregate(formula = steps~date, data = activity_imputed,
+            FUN = sum)
+barplot(stepsdateimputed$steps,
+        main="Total Number of Steps Per Day", 
+        xlab="Steps Per Day")
+```
+Compare with dataset which NA records removed, mean and median are:
+```{r}
+mean(stepsdateimputed$steps)
+median(stepsdateimputed$steps)
+```
+Mean remain the same and median increased by 1.
 
 ## Are there differences in activity patterns between weekdays and weekends?
+Create a new factor variable in the dataset with two levels, then divide the dataset into 2 subset.
+Call Sys.setlocale() since my system is Chinese.
+```{r}
+Sys.setlocale("LC_TIME", "English")
+dindicator <- weekdays(as.Date(activity_imputed$date, "%Y-%m-%d"))
+dindicator[dindicator == "Sunday" | dindicator == "Saturday"] <- "weekend"
+dindicator[dindicator != "weekend"] <- "weekday"
+activity_imputed$weekday_type <- as.factor(dindicator)
+
+activity_imputed_weekday <- activity_imputed[activity_imputed$weekday_type == "weekday", ]
+interval_activity_weekday <- aggregate(steps ~ interval, data = activity_imputed_weekday, mean)
+activity_imputed_weekend <- activity_imputed[activity_imputed$weekday_type == "weekend", ]
+interval_activity_weekend <- aggregate(steps ~ interval, data = activity_imputed_weekend, mean)
+```
+Plotting it.
+```{r}
+par(mfrow = c(2, 1))
+plot(x = interval_activity_weekday$interval, y = interval_activity_weekday$steps, 
+    type = "l", xlab = "Weekday intervals", ylab = "Number of Steps")    
+plot(x = interval_activity_weekend$interval, y = interval_activity_weekend$steps, 
+    type = "l", xlab = "Weekend intervals", ylab = "Number of Steps")
+```
+
+Thanks for your time
