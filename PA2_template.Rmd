@@ -1,0 +1,160 @@
+# Consequences of Storm Events
+
+## Synopsis
+
+This analysis try to answer two questions:
+
+1. Across the United States, which types of events (as indicated in the EVTYPE 
+variable) are most harmful with respect to population health?
+
+2. Across the United States, which types of events have the greatest economic 
+consequences?
+
+After exploring the U.S. National Oceanic and Atmospheric Administration's (NOAA) 
+storm database, it shows that of all severe weather events, HEAT and TORNADO. are the most 
+harmful to population health. But to the greatest economic 
+consequences, HURRICANE and HEAT are the most damage types.
+
+## Data Processing
+Read data by method read.csv() after download the bz2 file and wrap it by tbl_df().
+ 
+```{r cache=TRUE}
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(gridExtra)
+Sys.setlocale("LC_TIME", "English")
+stormdata <- read.csv("repdata-data-StormData.csv.bz2", header=T, stringsAsFactors=F)
+stormdata <- tbl_df(stormdata)
+names(stormdata)
+stormdatancol<-ncol(stormdata);stormdatancol
+nrow(stormdata)
+```
+This database contains 37 observations of major weather events in the United States, 
+including when and where they occured, as well as estimates of any fatalities, injuries, and property
+damage.
+
+According to the description, data was not gathered on all of the categories until 1996. So to drop events 
+prior to 1996, and variables to do the analysis also selected.
+```{r cache=TRUE}
+stormdata1996 <- select(stormdata, BGN_DATE, EVTYPE, FATALITIES:CROPDMGEXP)
+stormdata1996$BGN_DATE <- mdy_hms(stormdata1996$BGN_DATE)
+stormdata1996 <- filter(stormdata1996, year(BGN_DATE) >= 1996)
+stormdata1996 <- filter(stormdata1996, substr(EVTYPE,1,7) != "Summary")
+names(stormdata1996)
+ncol(stormdata1996)
+nrow(stormdata1996)
+```
+
+The EVTYPE contains inconsistent data, following code reassign event type to fields EVLABEL.
+```{r cache=TRUE}
+stormdata1996$EVTYPE <- toupper(stormdata1996$EVTYPE)
+stormdata1996$EVLABEL <- "OTHER"
+stormdata1996$EVLABEL[grepl("FIRE",stormdata1996$EVTYPE)] <- "FIRE"
+stormdata1996$EVLABEL[grepl("DUST",stormdata1996$EVTYPE)] <- "DUST"
+stormdata1996$EVLABEL[grepl("FLOOD|SURGE",stormdata1996$EVTYPE)] <- "FLOOD"
+stormdata1996$EVLABEL[grepl("HAIL",stormdata1996$EVTYPE)] <- "HAIL"
+stormdata1996$EVLABEL[grepl("WIND",stormdata1996$EVTYPE)] <- "HIGH WIND"
+stormdata1996$EVLABEL[grepl("WARM|HOT|DROUGHT|DRY|DRI|HEAT|HIGH",
+                      stormdata1996$EVTYPE)] <- "HEAT"
+stormdata1996$EVLABEL[grepl("COLD|FROST",stormdata1996$EVTYPE)] <- "COLD"
+stormdata1996$EVLABEL[grepl("SNOW|BLIZZARD|WINT*MIX|WINT*STOR|ICE",
+                      stormdata1996$EVTYPE)] <- "SNOWSTORM"
+stormdata1996$EVLABEL[grepl("TORN|SPOUT|WALL|FUNNEL",
+                      stormdata1996$EVTYPE)]<-"TORNADO"
+stormdata1996$EVLABEL[grepl("HURRICANE|TYPHOON|TROP",
+                      stormdata1996$EVTYPE)]<-"HURRICANE"
+stormdata1996$EVLABEL[grepl("THUN|TSTM|MICROB|RAIN",
+                      stormdata1996$EVTYPE)] <- "THUNDERSTORM"
+stormdata1996$EVLABEL[grepl("WINTER STORM",
+                      stormdata1996$EVTYPE)] <- "WINTER STORM"
+stormdata1996$EVLABEL[grepl("LIGHTNING",
+                      stormdata1996$EVTYPE)] <- "LIGHTNING"
+stormdata1996$EVLABEL[grepl("WINTER WEATHER|WINTER MIX|WINTRY MIX|WINTERY MIX",
+                      stormdata1996$EVTYPE)] <- "WINTER WEATHER"
+stormdata1996$EVLABEL[grepl("WET",
+                      stormdata1996$EVTYPE)] <- "WET"
+stormdata1996$EVLABEL[grepl("FOG",
+                      stormdata1996$EVTYPE)] <- "FOG"
+stormdata1996$EVLABEL[grepl("RIP CURRENT",
+                      stormdata1996$EVTYPE)] <- "RIP CURRENT"
+stormdata1996$EVLABEL[grepl("STREAM FLD|STRM FLDG",
+                      stormdata1996$EVTYPE)] <- "STREAM FLD"
+table(stormdata1996$EVLABEL)
+```
+
+Two columns PROPDMG(property damage) and CROPDMG(crop damage) should take account of their multiplier in PROPDMGEXP and CROPDMGEXP.
+```{r cache=TRUE}
+table(stormdata1996$PROPDMGEXP)
+table(stormdata1996$CROPDMGEXP)
+
+multiplier <- function (x, y) { 
+  x <- as.numeric(x)
+  if (y == "K") {
+    x <- x*10^3
+  } else if (y == "M") {
+    x <- x*10^6
+  } else if (y == "B") {
+    x <- x*10^9
+  } else {
+    x
+  }
+}
+
+stormdata1996$PROPDMGRESULT <- mapply(multiplier, stormdata1996$PROPDMG, stormdata1996$PROPDMGEXP)
+stormdata1996$CORPDMGRESULT <- mapply(multiplier, stormdata1996$CROPDMG, stormdata1996$CROPDMGEXP)
+```
+
+FATALITIES and INJURIES should be convert to numeric.
+```{r cache=TRUE}
+stormdata1996$FATALITIESNUM <- as.numeric(stormdata1996$FATALITIES)
+stormdata1996$INJURIESNUM <- as.numeric(stormdata1996$INJURIES)
+```
+
+
+## Results
+Now we can answer the two questions. For the first one, FATALITIES and INJURIES data are aggregated by EVLABEL.
+```{r cache=TRUE}
+stormdatahealth <- aggregate(cbind(FATALITIESNUM, INJURIESNUM) ~ EVLABEL, data=stormdata1996, sum)
+stormdatahealth <- filter(stormdatahealth, (FATALITIESNUM > 0 | INJURIESNUM > 0) )
+```
+
+Then plot it.
+
+```{r cache=TRUE}
+g1 <- ggplot(arrange(stormdatahealth, desc(FATALITIESNUM))[1:10,], aes(x=reorder(EVLABEL, desc(FATALITIESNUM)), y=FATALITIESNUM)) + 
+        geom_bar(fill="indianred", colour="black", stat="identity") + 
+        theme(axis.text.x = element_text(angle = 90, hjust=1)) + 
+        xlab("Event Type") +
+        ylab("Fatalities") 
+
+g2 <- ggplot(arrange(stormdatahealth, desc(INJURIESNUM))[1:10,], aes(x=reorder(EVLABEL, desc(INJURIESNUM)), y=INJURIESNUM)) + 
+        geom_bar(fill="steelblue3", colour="black", stat="identity") + 
+        theme(axis.text.x = element_text(angle = 90, hjust=1)) +
+        xlab("Event Type") + 
+        ylab("Injuries") 
+
+grid.arrange(g1, g2, ncol=2, main="Fatalities and Injuries by Event Type")
+```
+The figure shows that the most harmful events are HEAT and TORNADO.
+
+For the last questions, harmful event to economics is illustrated by same method. HURRICANE is the most damage type for property,
+and HEAT, for corp damage. 
+```{r cache=TRUE}
+stormdataeconomics <- aggregate(cbind(PROPDMGRESULT, CORPDMGRESULT) ~ EVLABEL, data=stormdata1996, sum)
+stormdataeconomics <- filter(stormdataeconomics, (PROPDMGRESULT > 0 | CORPDMGRESULT > 0) )
+
+g1 <- ggplot(arrange(stormdataeconomics, desc(PROPDMGRESULT))[1:10,], aes(x=reorder(EVLABEL, desc(PROPDMGRESULT)), y=PROPDMGRESULT)) + 
+        geom_bar(fill="indianred", colour="black", stat="identity") + 
+        theme(axis.text.x = element_text(angle = 90, hjust=1)) + 
+        xlab("Event Type") +
+        ylab("Property") 
+
+g2 <- ggplot(arrange(stormdataeconomics, desc(CORPDMGRESULT))[1:10,], aes(x=reorder(EVLABEL, desc(CORPDMGRESULT)), y=CORPDMGRESULT)) + 
+        geom_bar(fill="steelblue3", colour="black", stat="identity") + 
+        theme(axis.text.x = element_text(angle = 90, hjust=1)) +
+        xlab("Event Type") + 
+        ylab("Crop") 
+
+grid.arrange(g1, g2, ncol=2, main="Economic Damage by Event Type")
+```
